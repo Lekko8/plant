@@ -24,6 +24,9 @@ const (
 	defaultAddr    = ":8088"
 	defaultTLSAddr = ":8443"
 
+	// Префикс, по которому Let's Encrypt проверяет владение доменом (HTTP-01).
+	acmePathPrefix = "/.well-known/acme-challenge/"
+
 	readHeaderTimeout = 5 * time.Second
 	readTimeout       = 15 * time.Second
 	writeTimeout      = 15 * time.Second
@@ -53,6 +56,20 @@ func NewRouter(accessLog bool) chi.Router {
 	return r
 }
 
+// withACME добавляет отдачу ACME-челленджей из каталога webroot.
+// Нужно для выпуска сертификата Let's Encrypt по HTTP-01 без остановки сервиса:
+// certbot кладёт файл в каталог, приложение его отдаёт.
+// Пустой webroot означает, что ACME выключен и маршрут не регистрируется.
+func withACME(r chi.Router, webroot string) chi.Router {
+	if webroot == "" {
+		return r
+	}
+
+	files := http.StripPrefix(acmePathPrefix, http.FileServer(http.Dir(webroot)))
+	r.Handle(acmePathPrefix+"*", files)
+	return r
+}
+
 // requestIDHeader прокидывает id запроса из context в ответ.
 func requestIDHeader(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,18 +81,20 @@ func requestIDHeader(next http.Handler) http.Handler {
 // config — настройки сервера, собранные из окружения.
 // Вынесены в структуру, чтобы жизненный цикл можно было тестировать без env.
 type config struct {
-	httpAddr  string
-	httpsAddr string
-	certFile  string
-	keyFile   string
+	httpAddr    string
+	httpsAddr   string
+	certFile    string
+	keyFile     string
+	acmeWebroot string
 }
 
 func loadConfig() config {
 	return config{
-		httpAddr:  envOr("HTTP_ADDR", defaultAddr),
-		httpsAddr: envOr("HTTPS_ADDR", defaultTLSAddr),
-		certFile:  os.Getenv("TLS_CERT_FILE"),
-		keyFile:   os.Getenv("TLS_KEY_FILE"),
+		httpAddr:    envOr("HTTP_ADDR", defaultAddr),
+		httpsAddr:   envOr("HTTPS_ADDR", defaultTLSAddr),
+		certFile:    os.Getenv("TLS_CERT_FILE"),
+		keyFile:     os.Getenv("TLS_KEY_FILE"),
+		acmeWebroot: os.Getenv("ACME_WEBROOT"),
 	}
 }
 
@@ -117,8 +136,13 @@ func run(ctx context.Context, cfg config) error {
 	}
 	slog.Info("🚀 HTTP-сервер запущен", "addr", httpLn.Addr().String())
 
+	handler := withACME(NewRouter(true), cfg.acmeWebroot)
+	if cfg.acmeWebroot != "" {
+		slog.Info("🔑 ACME-челленджи отдаются из каталога", "webroot", cfg.acmeWebroot)
+	}
+
 	if !cfg.tlsEnabled() {
-		return serve(ctx, newHTTPServer(NewRouter(true)), httpLn)
+		return serve(ctx, newHTTPServer(handler), httpLn)
 	}
 
 	tlsLn, err := net.Listen("tcp", cfg.httpsAddr)
@@ -132,8 +156,8 @@ func run(ctx context.Context, cfg config) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	go func() { errCh <- serve(runCtx, newHTTPServer(NewRouter(true)), httpLn) }()
-	go func() { errCh <- serveTLS(runCtx, newHTTPServer(NewRouter(true)), tlsLn, cfg.certFile, cfg.keyFile) }()
+	go func() { errCh <- serve(runCtx, newHTTPServer(handler), httpLn) }()
+	go func() { errCh <- serveTLS(runCtx, newHTTPServer(handler), tlsLn, cfg.certFile, cfg.keyFile) }()
 
 	// Если один listener упал (например, не читается сертификат),
 	// гасим второй, иначе run() будет ждать его вечно.

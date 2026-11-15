@@ -12,6 +12,10 @@ services:
       HTTPS_ADDR: ":8443"
       TLS_CERT_FILE: /certs/cert.pem
       TLS_KEY_FILE: /certs/key.pem
+      # Каталог, из которого отдаются ACME-челленджи Let's Encrypt.
+      # certbot --webroot кладёт файлы в <webroot>/.well-known/acme-challenge/,
+      # поэтому приложению указываем именно этот подкаталог.
+      ACME_WEBROOT: /acme-webroot/.well-known/acme-challenge
     # Наружу смотрим через Cloudflare: 80 -> :8088 (HTTP), 443 -> :8443 (HTTPS).
     ports:
       - "80:8088"
@@ -20,6 +24,8 @@ services:
       # Самоподписанный сертификат готовится на хосте (см. README).
       # Cloudflare в режиме Full принимает self-signed.
       - /home/dev/certs:/certs:ro
+      # Сюда certbot кладёт файлы для HTTP-01, приложение их отдаёт.
+      - /home/dev/acme:/acme-webroot:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/ping"]
       interval: 30s

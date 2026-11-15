@@ -283,10 +283,53 @@ func TestRunServesHTTPAndHTTPS(t *testing.T) {
 	}
 }
 
+// TestACMEChallenge проверяет отдачу файла челленджа Let's Encrypt:
+// именно этот путь certbot дергает при выпуске и продлении сертификата.
+func TestACMEChallenge(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	const token = "test-token-123"
+
+	if err := os.WriteFile(filepath.Join(dir, token), []byte("challenge-content"), 0o644); err != nil {
+		t.Fatalf("write challenge: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	withACME(NewRouter(false), dir).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, acmePathPrefix+token, nil))
+
+	res := rec.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", res.StatusCode, http.StatusOK)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if string(body) != "challenge-content" {
+		t.Errorf("body = %q, want %q", body, "challenge-content")
+	}
+}
+
+// TestACMEDisabled: без ACME_WEBROOT маршрут не регистрируется и путь отдаёт 404.
+func TestACMEDisabled(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	withACME(NewRouter(false), "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, acmePathPrefix+"token", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	// t.Setenv несовместим с t.Parallel
 	t.Run("defaults", func(t *testing.T) {
-		for _, key := range []string{"HTTP_ADDR", "HTTPS_ADDR", "TLS_CERT_FILE", "TLS_KEY_FILE"} {
+		for _, key := range []string{"HTTP_ADDR", "HTTPS_ADDR", "TLS_CERT_FILE", "TLS_KEY_FILE", "ACME_WEBROOT"} {
 			t.Setenv(key, "")
 		}
 
@@ -296,6 +339,9 @@ func TestLoadConfig(t *testing.T) {
 		}
 		if cfg.httpsAddr != defaultTLSAddr {
 			t.Errorf("httpsAddr = %q, want %q", cfg.httpsAddr, defaultTLSAddr)
+		}
+		if cfg.acmeWebroot != "" {
+			t.Errorf("acmeWebroot = %q, want empty", cfg.acmeWebroot)
 		}
 		if cfg.tlsEnabled() {
 			t.Error("tlsEnabled() = true без сертификата")
@@ -307,10 +353,14 @@ func TestLoadConfig(t *testing.T) {
 		t.Setenv("HTTPS_ADDR", ":9443")
 		t.Setenv("TLS_CERT_FILE", "/certs/cert.pem")
 		t.Setenv("TLS_KEY_FILE", "/certs/key.pem")
+		t.Setenv("ACME_WEBROOT", "/acme")
 
 		cfg := loadConfig()
 		if cfg.httpAddr != ":9088" || cfg.httpsAddr != ":9443" {
 			t.Errorf("адреса = %q, %q", cfg.httpAddr, cfg.httpsAddr)
+		}
+		if cfg.acmeWebroot != "/acme" {
+			t.Errorf("acmeWebroot = %q, want %q", cfg.acmeWebroot, "/acme")
 		}
 		if !cfg.tlsEnabled() {
 			t.Error("tlsEnabled() = false, хотя сертификат и ключ заданы")
