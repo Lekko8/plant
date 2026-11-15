@@ -1,0 +1,22 @@
+# IDE
+.idea/
+
+# Результаты сборки
+/plant
+/plant.exe
+/bin/
+/dist/
+
+# Покрытие тестами
+coverage.out
+coverage.html
+*.coverprofile
+
+# Окружение и секреты
+.env
+.env.*
+!.env.example
+
+# ОС
+.DS_Store
+Thumbs.db

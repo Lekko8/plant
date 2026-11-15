@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+*.md
+coverage.out
+coverage.html
+*.test
+*.coverprofile
+compose.yaml
+.env
+.env.*
+/plant
+/plant.exe

@@ -1,0 +1,8 @@
+# Единый перевод строки в репозитории и в рабочей копии.
+# Иначе Git на Windows (core.autocrlf=true) отдаёт файлы с CRLF,
+# а CRLF в Dockerfile и shell-скриптах ломает сборку на Linux.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
