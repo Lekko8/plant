@@ -7,9 +7,19 @@ services:
     build: .
     environment:
       HTTP_ADDR: ":8088"
-    # Прямая публикация через белый IPv4 + проброс порта на роутере.
+      # Cloudflare в режиме Full ходит на origin по HTTPS (443),
+      # поэтому приложение дополнительно слушает TLS на :8443.
+      HTTPS_ADDR: ":8443"
+      TLS_CERT_FILE: /certs/cert.pem
+      TLS_KEY_FILE: /certs/key.pem
+    # Наружу смотрим через Cloudflare: 80 -> :8088 (HTTP), 443 -> :8443 (HTTPS).
     ports:
-      - "8088:8088"
+      - "80:8088"
+      - "443:8443"
+    volumes:
+      # Самоподписанный сертификат готовится на хосте (см. README).
+      # Cloudflare в режиме Full принимает self-signed.
+      - /home/dev/certs:/certs:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/ping"]
       interval: 30s
@@ -22,14 +32,3 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Вариант без открытых портов: Cloudflare Tunnel.
-  # Тогда уберите ports у app и используйте service: http://app:8088 в настройках туннеля.
-  #
-  # cloudflared:
-  #   image: cloudflare/cloudflared:latest
-  #   restart: unless-stopped
-  #   command: tunnel --no-autoupdate run
-  #   environment:
-  #     TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
-  #   depends_on:
-  #     - app

@@ -23,7 +23,8 @@ COPY --from=builder /out/plant /app/plant
 USER nobody
 
 ENV HTTP_ADDR=:8088
-EXPOSE 8088
+ENV HTTPS_ADDR=:8443
+EXPOSE 8088 8443
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget -qO- http://127.0.0.1:8088/ping || exit 1
