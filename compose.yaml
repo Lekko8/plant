@@ -7,12 +7,19 @@ services:
     build: .
     environment:
       HTTP_ADDR: ":8088"
-    # Классическая схема: A-запись домена -> белый IP, оранжевое облако Cloudflare.
-    # Cloudflare проксирует только 80/8080/8880/2052/2082/2086/2095 (HTTP),
-    # 8088 в этом списке нет — поэтому наружу публикуем 80,
-    # а внутри контейнера приложение по-прежнему слушает 8088.
+      # Cloudflare в режиме Full ходит на origin по HTTPS (443),
+      # поэтому приложение дополнительно слушает TLS на :8443.
+      HTTPS_ADDR: ":8443"
+      TLS_CERT_FILE: /certs/cert.pem
+      TLS_KEY_FILE: /certs/key.pem
+    # Наружу смотрим через Cloudflare: 80 -> :8088 (HTTP), 443 -> :8443 (HTTPS).
     ports:
       - "80:8088"
+      - "443:8443"
+    volumes:
+      # Самоподписанный сертификат готовится на хосте (см. README).
+      # Cloudflare в режиме Full принимает self-signed.
+      - /home/dev/certs:/certs:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/ping"]
       interval: 30s
@@ -24,8 +31,4 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  # Cloudflare Tunnel запускается отдельным systemd-сервисом на хосте
-  # (см. README/инструкцию): cloudflared -> http://localhost:8088.
-  # В compose он не нужен, чтобы токен туннеля не проходил через CI.
 
